@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LASER TAG 3D</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #0f0; z-index: 10; pointer-events: none; }
+        #menu { position: absolute; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; color: #0f0; }
+        
+        /* Mobile Controls */
+        #mobile-hud { position: absolute; bottom: 20px; width: 100%; display: none; justify-content: space-between; padding: 0 30px; box-sizing: border-box; z-index: 20; }
+        .touch-btn { width: 70px; height: 70px; background: rgba(0,255,0,0.1); border: 2px solid #0f0; color: #0f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; user-select: none; pointer-events: auto; }
+        #fire-btn { width: 90px; height: 90px; background: rgba(255,0,0,0.2); border-color: #f00; color: #f00; }
+        
+        @media (max-width: 900px) { #mobile-hud { display: flex; } }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border: 1px solid #0f0; transform: translate(-50%, -50%); border-radius: 50%; }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <h1>LASER TAG</h1>
+        <p id="my-id">Generating ID...</p>
+        <button onclick="start(true)" style="padding:15px 30px; background:#000; color:#0f0; border:2px solid #0f0; cursor:pointer;">HOST GAME</button>
+        <br>
+        <input type="text" id="join-id" placeholder="Friend's ID" style="padding:10px;">
+        <button onclick="start(false)" style="padding:10px; background:#000; color:#0f0; border:1px solid #0f0; cursor:pointer;">JOIN</button>
+    </div>
+
+    <div id="ui">Score: 0</div>
+    <div id="crosshair"></div>
+
+    <div id="mobile-hud">
+        <div style="display:grid; grid-template-columns: 70px 70px 70px;">
+            <div></div><div class="touch-btn" id="m-up">W</div><div></div>
+            <div class="touch-btn" id="m-left">A</div><div></div><div class="touch-btn" id="m-right">D</div>
+            <div></div><div class="touch-btn" id="m-down">S</div><div></div>
+        </div>
+        <div class="touch-btn" id="fire-btn">FIRE</div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, controls, peer, conn;
+        let moveState = { w: false, s: false, a: false, d: false };
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Arena
+            scene.add(new THREE.GridHelper(100, 40, 0x00ff00, 0x222222));
+            const light = new THREE.PointLight(0x00ff00, 2, 50);
+            camera.add(light);
+            scene.add(camera);
+
+            controls = new THREE.PointerLockControls(camera, document.body);
+
+            // PC Controls
+            document.addEventListener('keydown', (e) => { if(moveState.hasOwnProperty(e.key.toLowerCase())) moveState[e.key.toLowerCase()] = true; });
+            document.addEventListener('keyup', (e) => { if(moveState.hasOwnProperty(e.key.toLowerCase())) moveState[e.key.toLowerCase()] = false; });
+            document.addEventListener('mousedown', () => { if(controls.isLocked) shoot(); });
+
+            // Mobile Control Logic
+            const bindMobile = (id, key) => {
+                const el = document.getElementById(id);
+                el.ontouchstart = (e) => { e.preventDefault(); moveState[key] = true; };
+                el.ontouchend = (e) => { e.preventDefault(); moveState[key] = false; };
+            };
+            bindMobile('m-up', 'w'); bindMobile('m-down', 's');
+            bindMobile('m-left', 'a'); bindMobile('m-right', 'd');
+            document.getElementById('fire-btn').ontouchstart = (e) => { e.preventDefault(); shoot(); };
+
+            animate();
+        }
+
+        function shoot() {
+            const geo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0.2, -0.2, -0.5).applyMatrix4(camera.matrixWorld),
+                new THREE.Vector3(0, 0, -50).applyMatrix4(camera.matrixWorld)
+            ]);
+            const laser = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x00ffff }));
+            scene.add(laser);
+            setTimeout(() => scene.remove(laser), 50);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls.isLocked || window.innerWidth < 900) {
+                if (moveState.w) controls.moveForward(0.1);
+                if (moveState.s) controls.moveForward(-0.1);
+                if (moveState.a) controls.moveRight(-0.1);
+                if (moveState.d) controls.moveRight(0.1);
+            }
+            renderer.render(scene, camera);
+        }
+
+        // Multiplayer PeerJS
+        peer = new Peer();
+        peer.on('open', id => document.getElementById('my-id').innerText = "ID: " + id);
+        
+        window.start = (isHost) => {
+            document.getElementById('menu').style.display = 'none';
+            if(window.innerWidth > 900) controls.lock();
+            if(!isHost) {
+                conn = peer.connect(document.getElementById('join-id').value);
+            }
+        };
+
+        init();
+    </script>
+</body>
+</html>
